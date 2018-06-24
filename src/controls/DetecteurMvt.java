@@ -20,7 +20,7 @@ public class DetecteurMvt {
 	 * @return
 	 */
 	public boolean detecte() {
-		if(sound.readValue() > 30){
+		if(sound.readValue() > 20){
 			return true;
 		}
 		else {

@@ -16,6 +16,7 @@ import lejos.nxt.SensorPort;
 import lejos.nxt.SensorPortListener;
 import lejos.nxt.comm.BTConnection;
 import lejos.nxt.comm.Bluetooth;
+import lejos.nxt.comm.NXTConnection;
 import lejos.util.Delay;
 import lejos.util.Stopwatch;
 import lejos.util.Timer;
@@ -28,7 +29,8 @@ import controls.DetecteurMvt;
  * Classe principale, elle permet de controleur les lumieres et les controleurs 
  */
 public class CtrlLum {
-
+	private static Boolean isConnected;
+	private static Boolean isAmbiant = false;
 	/**
 	 * Initiliase tous les parametres en reglage d'usine
 	 */
@@ -39,42 +41,42 @@ public class CtrlLum {
 	 * Initiliase tous les parametres par rapport a la config perso fournie depuis l'appli
 	 */
 	public void reglagePerso() {
-		
+
 		File data = new File("config.dat");
 
-	    try {
-	      InputStream is = new FileInputStream(data);
-	      DataInputStream din = new DataInputStream(is);
+		try {
+			InputStream is = new FileInputStream(data);
+			DataInputStream din = new DataInputStream(is);
 
-	      while (is.available() > 3) { // at least 4 bytes left to read
-	        float x = din.readFloat();
+			while (is.available() > 3) { // at least 4 bytes left to read
+				float x = din.readFloat();
 
-	        System.out.println("" + x);
-	      }
-	      din.close();
-	    } catch (IOException ioe) {
-	      System.err.println("Read Exception");
-	    }
+				System.out.println("" + x);
+			}
+			din.close();
+		} catch (IOException ioe) {
+			System.err.println("Read Exception");
+		}
 	}
-	
+
 	public boolean ajoutPanneau() throws IOException {
-		
+
 		String connected = "Connected";
-        String waiting = "Waiting...";
-        String closing = "Closing...";
-		
-        LCD.drawString(waiting,0,0);
+		String waiting = "Waiting...";
+		String closing = "Closing...";
+
+		LCD.drawString(waiting,0,0);
 		LCD.refresh();
 
-        BTConnection btc = Bluetooth.waitForConnection();
-        
+		BTConnection btc = Bluetooth.waitForConnection();
+		btc.setIOMode(NXTConnection.RAW);
 		LCD.clear();
 		LCD.drawString(connected,0,0);
 		LCD.refresh();	
 
 		DataInputStream dis = btc.openDataInputStream();
 		DataOutputStream dos = btc.openDataOutputStream();
-		
+
 		for(int i=0;i<100;i++) {
 			int n = dis.readInt();
 			LCD.drawInt(n,7,0,1);
@@ -82,7 +84,11 @@ public class CtrlLum {
 			dos.writeInt(-n);
 			dos.flush();
 		}
-		
+
+		Byte n = dis.readByte();
+		LCD.clear();
+		LCD.drawInt(n, 4, 4);
+
 		dis.close();
 		dos.close();
 		LCD.clear();
@@ -90,12 +96,12 @@ public class CtrlLum {
 		LCD.refresh();
 		btc.close();
 		LCD.clear();
-		
+
 		return true;
 	}
-	
+
 	public boolean suppressionPanneau() {
-				
+
 		return true;
 	}
 
@@ -105,26 +111,29 @@ public class CtrlLum {
 	 * @param cptlLuminosite 
 	 * @param pln 
 	 */
-	public static void modeAmbiant(final Plafonnier pln, final CapteurLuminosite cptlLuminosite) {
+	public static void modeAmbiant(Plafonnier pln, CapteurLuminosite cptlLuminosite) {
+		isAmbiant = true;
 		SensorPort.S3.addSensorPortListener(new SensorPortListener(){
-	         @Override
-	         public void stateChanged(SensorPort source, int oldValue, int newValue) {
-	        	 if (cptlLuminosite.getLuminosite() < 300 ){
-	        		 if(pln.getIntensite() < 360)
-	        			 pln.setIntensite(pln.getIntensite() + 5);
-	        	 }
-	        	 else if (cptlLuminosite.getLuminosite() <= 700 && cptlLuminosite.getLuminosite() >= 300){
-	        		 if(pln.getIntensite() < 240)
-	        			 pln.setIntensite(pln.getIntensite() + 1);
-	        		 if(pln.getIntensite() > 240)
-	        			 pln.setIntensite(pln.getIntensite() - 1);
-	        	 }
-	        	 else if (cptlLuminosite.getLuminosite() > 700){
-	        		 if(pln.getIntensite() > 180)
-	        			 pln.setIntensite(pln.getIntensite() - 5);
-	        	 }
-	         }
-	    });
+			@Override
+			public void stateChanged(SensorPort source, int oldValue, int newValue) {
+				pln.allumer();
+				int intensite = pln.getIntensite();
+				if (cptlLuminosite.getLuminosite() < 300 ){
+					if(intensite < 360)
+						pln.setIntensite(intensite  + 40);
+				}
+				else if (cptlLuminosite.getLuminosite() <= 700 && cptlLuminosite.getLuminosite() >= 300){
+					if(intensite  < 240)
+						pln.setIntensite(intensite  + 10);
+					if(intensite > 240)
+						pln.setIntensite(intensite  - 10);
+				}
+				else if (cptlLuminosite.getLuminosite() > 700){
+					if(intensite  > 180)
+						pln.setIntensite(intensite  - 40);
+				}
+			}
+		});
 	}
 
 	/**
@@ -133,15 +142,29 @@ public class CtrlLum {
 	 * @param pln 
 	 */
 	public static void modeManuel(Plafonnier pln) {
+		isAmbiant = false;
 		SensorPort.S3.reset();
 		SensorPort.S3.enableColorSensor();
 	}
-	
+
+	public static DataInputStream getBluetoothDIS() throws Exception{
+		LCD.clear();
+		LCD.drawString("Waiting for Bluetooth",0,0);
+		BTConnection btc = Bluetooth.waitForConnection();
+		DataInputStream dis = btc.openDataInputStream();
+		btc.setIOMode(NXTConnection.RAW);
+		LCD.clear();
+		LCD.drawString("Connected",0,0);
+		isConnected = true;
+		Thread.sleep(500);
+		return dis;
+	}
+
 	/**
 	 * Fonction main
 	 */
 	public static void main(String[] args) throws Exception {
-		
+
 		CapteurContact cptContactLampe = new CapteurContact(SensorPort.S1);
 		CapteurContact cptContactPlafonnier = new CapteurContact(SensorPort.S2);
 		CapteurLuminosite cptlLuminosite = new CapteurLuminosite(SensorPort.S3);
@@ -149,25 +172,58 @@ public class CtrlLum {
 		Lampe lmp = new Lampe(false);
 		Plafonnier pln = new Plafonnier(0);
 		Stopwatch watch = new Stopwatch();
-
-		Boolean isAmbiant = true;
-	
+		DataInputStream dis = getBluetoothDIS();
+		escapeButtonListener();
 		// Check guy's presence
 		presence(detectMvt, watch, pln, lmp);
-		
 		modeButton(pln, cptlLuminosite);
-		
-		
 		contacLampetListener(lmp, cptContactLampe);
-		
+
 		contacPlafoniertListener(pln, cptContactPlafonnier, isAmbiant, cptlLuminosite);
-				
-		// Exit app
-		Button.ESCAPE.waitForPressAndRelease();
-		LCD.clear();
-		LCD.drawString("Exit", 5, 4);
-		Thread.sleep(1000);
-		
+
+		while(isConnected){
+			Byte choix = dis.readByte();
+			switch(choix){
+			case 1:
+				if(lmp.isEtat()){
+					lmp.eteindre();
+				} else {
+					lmp.allumer();
+				}
+				break;
+			case 2:
+				if(pln.isEtat()){
+					pln.eteindre();
+				} else {
+					pln.allumer();
+				}
+				break;
+			case 3:
+				if(isAmbiant){
+					LCD.clear(3);
+					LCD.drawString("Ambiant OFF", 0, 3);
+					modeManuel(pln);
+				} else {
+					LCD.clear(3);
+					LCD.drawString("Ambiant ON", 0, 3);
+					modeAmbiant(pln, cptlLuminosite);
+				}
+				break;
+			default:
+				dis.close();
+				break;
+			}
+
+			if (choix >= 100) {
+				int inten = Integer.parseInt(String.valueOf(choix).substring(2,String.valueOf(choix).length()));
+				if (inten == 0) {
+					pln.setIntensite(100);
+				} else {
+					pln.setIntensite(inten*100);
+				}	
+			}
+		}
+		return;
 	}
 
 
@@ -178,17 +234,17 @@ public class CtrlLum {
 	 */
 	private static void modeButton(final Plafonnier pln, final CapteurLuminosite cptlLuminosite) {
 		Button.LEFT.addButtonListener(new ButtonListener() {
-		      public void buttonPressed(Button b) {
-		    	  	LCD.clear(3);
-		        	LCD.drawString("Ambiant ON", 0, 3);
-		    	  	modeAmbiant(pln, cptlLuminosite);
-		        }
+			public void buttonPressed(Button b) {
+				LCD.clear(3);
+				LCD.drawString("Ambiant ON", 0, 3);
+				modeAmbiant(pln, cptlLuminosite);
+			}
 
-		        public void buttonReleased(Button b) {
-		        	LCD.clear(3);
-		  			LCD.drawString("Ambiant OFF", 0, 3);
-		  			modeManuel(pln);
-		        }
+			public void buttonReleased(Button b) {
+				LCD.clear(3);
+				LCD.drawString("Ambiant OFF", 0, 3);
+				modeManuel(pln);
+			}
 		});
 	}
 
@@ -212,15 +268,15 @@ public class CtrlLum {
 	 */
 	private static void presence(final DetecteurMvt detectMvt, final Stopwatch watch, final Plafonnier pln, final Lampe lmp) {
 		SensorPort.S4.addSensorPortListener(new SensorPortListener(){
-	         @Override
-	         public void stateChanged(SensorPort source, int oldValue, int newValue) {
-	        	 // Stop light after 2 minutes
-	        	 if(watch.elapsed() > 120000)
-	        		 stopAll(pln, lmp, watch);	
-	        	 if (detectMvt.detecte())
-	        		 watch.reset();	 
-	         }
-	    });
+			@Override
+			public void stateChanged(SensorPort source, int oldValue, int newValue) {
+				// Stop light after 2 minutes
+				if(watch.elapsed() > 120000)
+					stopAll(pln, lmp, watch);	
+				if (detectMvt.detecte())
+					watch.reset();	 
+			}
+		});
 	}
 
 	/**
@@ -229,16 +285,16 @@ public class CtrlLum {
 	private static void contacPlafoniertListener(final Plafonnier pln, final CapteurContact cptContact, final Boolean isAmbiant, 
 			final CapteurLuminosite cptlLuminosite) {
 		SensorPort.S2.addSensorPortListener(new SensorPortListener(){
-	         @Override
-	         public void stateChanged(SensorPort source, int oldValue, int newValue) {
-	        	 if (cptContact.contact()){
-	 				pln.allumer();
-	        	 }
-	 			else
-	 				pln.eteindre();	 
-	         }
-	    });
-		
+			@Override
+			public void stateChanged(SensorPort source, int oldValue, int newValue) {
+				if (cptContact.contact()){
+					pln.allumer();
+				}
+				else
+					pln.eteindre();	 
+			}
+		});
+
 	}
 
 	/**
@@ -246,13 +302,21 @@ public class CtrlLum {
 	 */
 	private static void contacLampetListener(final Lampe lmp, final CapteurContact cptContact) {
 		SensorPort.S1.addSensorPortListener(new SensorPortListener(){
-	         @Override
-	         public void stateChanged(SensorPort source, int oldValue, int newValue) {
-	        	 if (cptContact.contact())
-	 				lmp.allumer();
-	 			else
-	 				lmp.eteindre();
-	         }
-	    });
+			@Override
+			public void stateChanged(SensorPort source, int oldValue, int newValue) {
+				if (cptContact.contact())
+					lmp.allumer();
+				else
+					lmp.eteindre();
+			}
+		});
+	}
+
+	private static void escapeButtonListener(){
+		Button.ESCAPE.waitForPressAndRelease();
+		isConnected = false;
+		LCD.clear();
+		LCD.drawString("Exit", 5, 4);
+		return;
 	}
 }
